@@ -5,8 +5,10 @@ const path = require("path");
 const url = require("url");
 
 const PORT = process.env.PORT || 3000;
-const BACKEND = process.env.BACKEND_URL || "https://plazagardenmsk.naviboard.navicentric.com";
-const ROOT = __dirname;
+const BACKEND =
+  process.env.BACKEND_URL ||
+  "https://plazagardenmsk.naviboard.navicentric.com";
+const ROOT = path.join(__dirname, "public");
 
 const MIME_TYPES = {
   ".html": "text/html",
@@ -56,16 +58,45 @@ function proxyRequest(req, res) {
   req.pipe(proxyReq);
 }
 
+function directoryListing(dirPath, reqPath, res) {
+  const files = fs.readdirSync(dirPath).filter((f) => !f.startsWith("."));
+  const dirUrl = reqPath.endsWith("/") ? reqPath : reqPath + "/";
+  const links = files
+    .map((f) => {
+      const isDir = fs.statSync(path.join(dirPath, f)).isDirectory();
+      const name = isDir ? f + "/" : f;
+      return `<li><a href="${dirUrl}${name}">${name}</a></li>`;
+    })
+    .join("\n");
+
+  const html = `<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>Directory listing for ${reqPath}</title>
+</head>
+<body>
+<h1>Directory listing for ${reqPath}</h1>
+<hr>
+<ul>
+${links}
+</ul>
+<hr>
+</body>
+</html>`;
+
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+}
+
 const server = http.createServer((req, res) => {
-  // Proxy /api, /static, /connection to backend
   if (PROXY_PATHS.some((p) => req.url.startsWith(p))) {
     proxyRequest(req, res);
     return;
   }
 
-  // Static files
   const reqPath = decodeURIComponent(req.url.split("?")[0]);
-  const filePath = path.join(ROOT, reqPath === "/" ? "." : reqPath);
+  const filePath = path.join(ROOT, reqPath);
 
   if (!fs.existsSync(filePath)) {
     res.writeHead(404);
@@ -73,26 +104,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Directory listing (like Python SimpleHTTPRequestHandler)
   if (fs.statSync(filePath).isDirectory()) {
-    const files = fs.readdirSync(filePath).filter(
-      (f) => !f.startsWith(".") && f !== "server.js" && f !== "package.json" && f !== "node_modules",
-    );
-    const dirPath = reqPath.endsWith("/") ? reqPath : reqPath + "/";
-    const links = files
-      .map((f) => {
-        const isDir = fs.statSync(path.join(filePath, f)).isDirectory();
-        return `<li><a href="${dirPath}${f}${isDir ? "/" : ""}">${f}${isDir ? "/" : ""}</a></li>`;
-      })
-      .join("\n");
-
-    res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(`<!DOCTYPE html>
-<html><head><title>Directory listing for ${reqPath}</title></head>
-<body>
-<h2>Directory listing for ${reqPath}</h2>
-<hr><ul>\n${links}\n</ul><hr>
-</body></html>`);
+    directoryListing(filePath, reqPath, res);
     return;
   }
 
@@ -110,5 +123,6 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Serving files from ${ROOT}`);
   console.log(`Proxying ${PROXY_PATHS.join(", ")} -> ${BACKEND}`);
 });
