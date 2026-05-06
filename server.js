@@ -1,8 +1,11 @@
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const url = require("url");
 
 const PORT = process.env.PORT || 3000;
+const BACKEND = process.env.BACKEND_URL || "https://plazagardenmsk.naviboard.navicentric.com";
 const ROOT = __dirname;
 
 const MIME_TYPES = {
@@ -20,9 +23,49 @@ const MIME_TYPES = {
   ".ttf": "font/ttf",
 };
 
+const PROXY_PATHS = ["/api", "/static", "/connection"];
+
+function proxyRequest(req, res) {
+  const targetUrl = BACKEND + req.url;
+  const parsed = url.parse(targetUrl);
+  const transport = parsed.protocol === "https:" ? https : http;
+
+  const proxyReq = transport.request(
+    {
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.path,
+      method: req.method,
+      headers: {
+        ...req.headers,
+        host: parsed.hostname,
+      },
+    },
+    (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    },
+  );
+
+  proxyReq.on("error", (err) => {
+    console.error("Proxy error:", err.message);
+    res.writeHead(502);
+    res.end("Bad Gateway");
+  });
+
+  req.pipe(proxyReq);
+}
+
 const server = http.createServer((req, res) => {
-  const url = decodeURIComponent(req.url.split("?")[0]);
-  const filePath = path.join(ROOT, url === "/" ? "index.html" : url);
+  // Proxy /api, /static, /connection to backend
+  if (PROXY_PATHS.some((p) => req.url.startsWith(p))) {
+    proxyRequest(req, res);
+    return;
+  }
+
+  // Static files
+  const reqPath = decodeURIComponent(req.url.split("?")[0]);
+  const filePath = path.join(ROOT, reqPath === "/" ? "index.html" : reqPath);
 
   if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     res.writeHead(404);
@@ -43,5 +86,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Static server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Proxying ${PROXY_PATHS.join(", ")} -> ${BACKEND}`);
 });
