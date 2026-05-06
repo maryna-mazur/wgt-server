@@ -58,57 +58,7 @@ function proxyRequest(req, res) {
   req.pipe(proxyReq);
 }
 
-function directoryListing(dirPath, reqPath, res) {
-  const files = fs.readdirSync(dirPath).filter((f) => !f.startsWith("."));
-  const dirUrl = reqPath.endsWith("/") ? reqPath : reqPath + "/";
-  const links = files
-    .map((f) => {
-      const isDir = fs.statSync(path.join(dirPath, f)).isDirectory();
-      const name = isDir ? f + "/" : f;
-      return `<li><a href="${dirUrl}${name}">${name}</a></li>`;
-    })
-    .join("\n");
-
-  const html = `<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
-<html>
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<title>Directory listing for ${reqPath}</title>
-</head>
-<body>
-<h1>Directory listing for ${reqPath}</h1>
-<hr>
-<ul>
-${links}
-</ul>
-<hr>
-</body>
-</html>`;
-
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(html);
-}
-
-const server = http.createServer((req, res) => {
-  if (PROXY_PATHS.some((p) => req.url.startsWith(p))) {
-    proxyRequest(req, res);
-    return;
-  }
-
-  const reqPath = decodeURIComponent(req.url.split("?")[0]);
-  const filePath = path.join(ROOT, reqPath);
-
-  if (!fs.existsSync(filePath)) {
-    res.writeHead(404);
-    res.end("Not found");
-    return;
-  }
-
-  if (fs.statSync(filePath).isDirectory()) {
-    directoryListing(filePath, reqPath, res);
-    return;
-  }
-
+function serveFile(filePath, res) {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
   const stat = fs.statSync(filePath);
@@ -119,6 +69,36 @@ const server = http.createServer((req, res) => {
   });
 
   fs.createReadStream(filePath).pipe(res);
+}
+
+const server = http.createServer((req, res) => {
+  if (PROXY_PATHS.some((p) => req.url.startsWith(p))) {
+    proxyRequest(req, res);
+    return;
+  }
+
+  const reqPath = decodeURIComponent(req.url.split("?")[0].split("#")[0]);
+  const filePath = path.join(ROOT, reqPath);
+
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
+  // Directory — serve index.html inside it (like Python SimpleHTTPRequestHandler)
+  if (fs.statSync(filePath).isDirectory()) {
+    const indexPath = path.join(filePath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      serveFile(indexPath, res);
+    } else {
+      res.writeHead(404);
+      res.end("Not found");
+    }
+    return;
+  }
+
+  serveFile(filePath, res);
 });
 
 server.listen(PORT, "0.0.0.0", () => {
