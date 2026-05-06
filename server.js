@@ -17,7 +17,7 @@ const MIME_TYPES = {
   ".jpg": "image/jpeg",
   ".svg": "image/svg+xml",
   ".xml": "application/xml",
-  ".wgt": "application/octet-stream",
+  ".wgt": "application/vnd.tizen.package",
   ".woff": "font/woff",
   ".woff2": "font/woff2",
   ".ttf": "font/ttf",
@@ -65,11 +65,34 @@ const server = http.createServer((req, res) => {
 
   // Static files
   const reqPath = decodeURIComponent(req.url.split("?")[0]);
-  const filePath = path.join(ROOT, reqPath === "/" ? "index.html" : reqPath);
+  const filePath = path.join(ROOT, reqPath === "/" ? "." : reqPath);
 
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+  if (!fs.existsSync(filePath)) {
     res.writeHead(404);
     res.end("Not found");
+    return;
+  }
+
+  // Directory listing (like Python SimpleHTTPRequestHandler)
+  if (fs.statSync(filePath).isDirectory()) {
+    const files = fs.readdirSync(filePath).filter(
+      (f) => !f.startsWith(".") && f !== "server.js" && f !== "package.json" && f !== "node_modules",
+    );
+    const dirPath = reqPath.endsWith("/") ? reqPath : reqPath + "/";
+    const links = files
+      .map((f) => {
+        const isDir = fs.statSync(path.join(filePath, f)).isDirectory();
+        return `<li><a href="${dirPath}${f}${isDir ? "/" : ""}">${f}${isDir ? "/" : ""}</a></li>`;
+      })
+      .join("\n");
+
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(`<!DOCTYPE html>
+<html><head><title>Directory listing for ${reqPath}</title></head>
+<body>
+<h2>Directory listing for ${reqPath}</h2>
+<hr><ul>\n${links}\n</ul><hr>
+</body></html>`);
     return;
   }
 
