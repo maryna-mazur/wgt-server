@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <widget>
-    <ver>1.0.0</ver>
-    <size>1277832</size>
+    <ver>1.0.2</ver>
+    <size>1399393</size>
     <widgetname>NaviBoard</widgetname>
     <webtype>tizen</webtype>
 </widget>
